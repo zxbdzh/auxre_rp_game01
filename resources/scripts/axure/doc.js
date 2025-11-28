@@ -349,7 +349,15 @@
             widget.elementId = elementId;
             widget.name = widget.label = (elementQuery.data('label') ? elementQuery.data('label') : '');
             //widget.text = $ax('#' + elementId).text();
-            widget.opacity = Number(elementQuery.css('opacity')) * 100;
+            if(widget.isLayer) {
+                widget.opacity = function() {
+                    var layerOpacity = elementQuery.attr('layer-opacity');
+                    if(layerOpacity) return Number(layerOpacity) * 100;
+                    return Number(elementQuery.css('opacity')) * 100;
+                }
+            } else {
+                widget.opacity = Number(elementQuery.css('opacity')) * 100;
+            }
             //widget.rotation = $ax.move.getRotationDegree(widget.elementId);
             var scriptId = $ax.repeater.getScriptIdFromElementId(elementId);
             var repeaterId = $ax.getParentRepeaterFromScriptId(scriptId);

@@ -60,6 +60,13 @@ $axure.internal(function($ax) {
     $ax.public.fn.IsConnector = function (type) { return type == $ax.constants.CONNECTOR_TYPE; }
     $ax.public.fn.IsContainer = function (type) { return type== $ax.constants.VECTOR_SHAPE_TYPE || type == $ax.constants.TABLE_TYPE || type == $ax.constants.MENU_OBJECT_TYPE || type == $ax.constants.TREE_NODE_OBJECT_TYPE; }
 
+    var SET_OPACITY_TYES = [
+        $ax.constants.CHECK_BOX_TYPE, $ax.constants.RADIO_BUTTON_TYPE, $ax.constants.TEXT_BOX_TYPE,
+        $ax.constants.TEXT_AREA_TYPE, $ax.constants.LIST_BOX_TYPE, $ax.constants.COMBO_BOX_TYPE, $ax.constants.BUTTON_TYPE,
+        $ax.constants.IMAGE_BOX_TYPE, $ax.constants.IMAGE_MAP_REGION_TYPE, $ax.constants.VECTOR_SHAPE_TYPE
+    ];
+    $ax.public.fn.SupportSetOpacity = function (type) { return $.inArray(type, SET_OPACITY_TYES) !== -1; }
+
     var PLAIN_TEXT_TYPES = [$ax.constants.TEXT_BOX_TYPE, $ax.constants.TEXT_AREA_TYPE, $ax.constants.LIST_BOX_TYPE,
         $ax.constants.COMBO_BOX_TYPE, $ax.constants.CHECK_BOX_TYPE, $ax.constants.RADIO_BUTTON_TYPE, $ax.constants.BUTTON_TYPE];
 
@@ -365,26 +372,37 @@ $axure.internal(function($ax) {
     };
 
     $ax.public.fn.setOpacity = function(opacity, easing, duration) {
-        if(!easing || ! duration) {
+        if(!easing || !duration) {
             easing = 'none';
             duration = 0;
         }
+        function setOpacity(ids) {
+            for(var index = 0; index < ids.length; index++) {
+                var elementId = ids[index];
+                var obj = $obj(elementId);
+                var query = $jobj(elementId);
+                // set opacity of child elements recursively
+                if($ax.public.fn.IsLayer(obj.type)) {
+                    query.attr('layer-opacity', opacity);
+                    setOpacity(obj.objs.flatMap(o => o.scriptIds));
+                    $ax.action.removeAnimationFromQueue(elementId, $ax.action.queueTypes.fade);
+                } else if($ax.public.fn.SupportSetOpacity(obj.type)) {
+                    var onComplete = function() {
+                        $ax.action.fireAnimationFromQueue(elementId, $ax.action.queueTypes.fade);
+                    };
+
+                    if(duration == 0 || easing == 'none') {
+                        query.css('opacity', opacity);
+                        onComplete();
+                    } else query.animate({ opacity: opacity }, { duration: duration, easing: easing, queue: false, complete: onComplete });
+                }
+            }
+        }
 
         var elementIds = this.getElementIds();
-
-        for(var index = 0; index < elementIds.length; index++) {
-            var elementId = elementIds[index];
-            var onComplete = function() {
-                $ax.action.fireAnimationFromQueue(elementId, $ax.action.queueTypes.fade);
-            };
-
-            var query = $jobj(elementId);
-            if(duration == 0 || easing == 'none') {
-                query.css('opacity', opacity);
-                onComplete();
-            } else query.animate({ opacity: opacity }, { duration: duration, easing: easing, queue: false, complete: onComplete });
-        }
+        setOpacity(elementIds);
     }
+
     //move one widget.  I didn't combine moveto and moveby, since this is in .public, and separate them maybe more clear for the user
     var _move = function (elementId, x, y, options, moveTo) {
         if(!options.easing) options.easing = 'none';
@@ -1366,10 +1384,10 @@ $axure.internal(function($ax) {
     };
 
     //relative to the parent
-    $ax.public.fn.offsetBoundingRect = function (ignoreRotation) {
+    $ax.public.fn.offsetBoundingRect = function (ignoreRotation, ignoreOuterShadow) {
         var elementId = this.getElementIds()[0];
         if (!elementId) return undefined;
-        
+
         //element is null if RDO
         //data- values are for layers (legacy compound) 
         var element = document.getElementById(elementId);
@@ -1380,7 +1398,7 @@ $axure.internal(function($ax) {
         var style;
         var movedLoc = $ax.visibility.getMovedLocation(elementId);
         var resizedSize = $ax.visibility.getResizedSize(elementId);
-        
+
         if (movedLoc) {
             position = movedLoc;
         } else if(element && element.getAttribute('data-left')) {
@@ -1395,7 +1413,7 @@ $axure.internal(function($ax) {
 
             var oShadow = style.outerShadow;
 
-            if (oShadow.on) {
+            if (oShadow.on && !ignoreOuterShadow) {
                 if (oShadow.offsetX < 0) {
                     position.left += oShadow.offsetX;
                     position.left -= oShadow.blurRadius;
@@ -1446,7 +1464,7 @@ $axure.internal(function($ax) {
 
             var oShadow = style.outerShadow;
 
-            if (oShadow.on) {
+            if (oShadow.on && !ignoreOuterShadow) {
                 if (oShadow.offsetX < 0) size.width -= oShadow.offsetX;
                 else size.width += oShadow.offsetX;
                 if (oShadow.offsetY < 0) size.height -= oShadow.offsetY;
@@ -1460,7 +1478,7 @@ $axure.internal(function($ax) {
             var jObj = $(element);
             size = { width: jObj.outerWidth(), height: jObj.outerHeight() };
         }
-        
+
         var fixed = _fixedLocation(elementId, size);
         if(fixed.valid) {
             position.left = fixed.left;
@@ -1499,8 +1517,8 @@ $axure.internal(function($ax) {
     };
 
     //relative to the page
-    $ax.public.fn.pageBoundingRect = function (ignoreRotation, scrollableId) {
-        var boundingRect = this.offsetBoundingRect(ignoreRotation);
+    $ax.public.fn.pageBoundingRect = function (ignoreRotation, scrollableId, ignoreOuterShadow) {
+        var boundingRect = this.offsetBoundingRect(ignoreRotation, ignoreOuterShadow);
         if(!boundingRect) return undefined;
 
         if(boundingRect.isFixed) return _populateBoundingRect(boundingRect);
@@ -1574,8 +1592,8 @@ $axure.internal(function($ax) {
         return _populateBoundingRect(boundingRect);
     }
 
-    $ax.public.fn.size = function () {
-        var boundingRect = this.offsetBoundingRect(true);
+    $ax.public.fn.size = function ({ ignoreRotation = true, ignoreOuterShadow = true } = {}) {
+        var boundingRect = this.offsetBoundingRect(ignoreRotation, ignoreOuterShadow);
         return boundingRect ? boundingRect.size : undefined;
 
         //var firstId = this.getElementIds()[0];
